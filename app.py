@@ -59,6 +59,22 @@ if sheet_url:
             st.warning("Not enough data in selected range.")
             st.stop()
 
+        # Let user define custom date range (start and end)
+st.markdown("### Or select a custom date range")
+custom_start = st.date_input("📅 Start date", value=(datetime.today() - timedelta(days=15)).date())
+custom_end = st.date_input("📅 End date", value=datetime.today().date())
+
+# Convert to datetime for safe comparison
+custom_start_dt = datetime.combine(custom_start, datetime.min.time())
+custom_end_dt = datetime.combine(custom_end, datetime.min.time())
+
+# Filter columns within this custom range
+selected_cols = [col for col, dt in zip(rank_data.columns, date_cols)
+                 if pd.notna(dt) and custom_start_dt <= dt <= custom_end_dt]
+
+selected_rank_data = rank_data[selected_cols]
+
+
         latest_col = filtered_cols[0]  # Always use latest column from range
 
         df["Latest Rank"] = df[latest_col]
