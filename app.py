@@ -32,33 +32,56 @@ if sheet_url:
                     continue
             return pd.NaT
 
-        date_cols = [parse_flexible_date(col) for col in rank_data.columns]
+        parsed_dates = [parse_flexible_date(col) for col in rank_data.columns]
+        valid_date_cols = [col for col, dt in zip(rank_data.columns, parsed_dates) if pd.notna(dt)]
 
-        # --- CUSTOM DATE RANGE SELECTION ---
-        st.markdown("### Select Custom Date Range")
-        custom_start = st.date_input("📅 Start date", value=(datetime.today() - timedelta(days=15)).date())
-        custom_end = st.date_input("📅 End date", value=datetime.today().date())
+        # --- DATE FILTERS ---
+        st.markdown("### Select Date Range")
+        option = st.radio("Select range type", ["Preset Range", "Custom Range"])
 
-        # Convert to datetime for safe comparison
-        custom_start_dt = datetime.combine(custom_start, datetime.min.time())
-        custom_end_dt = datetime.combine(custom_end, datetime.min.time())
+        if option == "Preset Range":
+            preset_range = st.selectbox("Select time range", ["Last 7 days", "Last 15 days", "Last 30 days", "Last 90 days", "Last 180 days"])
+            days_map = {
+                "Last 7 days": 7,
+                "Last 15 days": 15,
+                "Last 30 days": 30,
+                "Last 90 days": 90,
+                "Last 180 days": 180
+            }
+            days = days_map[preset_range]
+            end_date = datetime.today()
+            start_date = end_date - timedelta(days=days)
+        else:
+            start_date = st.date_input("Select Start Date")
+            end_date = st.date_input("Select End Date")
+            if start_date > end_date:
+                st.error("Start date must be before end date.")
+                st.stop()
 
-        # Filter columns within this custom range
-        selected_cols = [col for col, dt in zip(rank_data.columns, date_cols)
-                         if pd.notna(dt) and custom_start_dt <= dt <= custom_end_dt]
+        # Optional: Start date for movement comparison
+        st.markdown("### Select Comparison Start Date (For Movement Analysis)")
+        comparison_date = st.date_input("Comparison Start Date")
 
-        selected_cols = sorted(selected_cols, reverse=True)  # latest to oldest
-        selected_rank_data = rank_data[selected_cols]
+        filtered_cols = [col for col, dt in zip(rank_data.columns, parsed_dates) if pd.notna(dt) and start_date <= dt.date() <= end_date]
 
-        if len(selected_cols) < 2:
+        if len(filtered_cols) < 2:
             st.warning("⚠️ Not enough date columns in selected range to process analysis.")
             st.stop()
 
-        latest_date = selected_cols[0]
-        prev_date = selected_cols[1]
+        df_filtered = df.copy()
+        df_filtered["Latest Rank"] = rank_data[filtered_cols[-1]]
 
-        df["Latest Rank"] = selected_rank_data[latest_date]
-        df["Previous Rank"] = selected_rank_data[prev_date]
+        # Find closest column to comparison date
+        comparison_col = None
+        for col, dt in zip(rank_data.columns, parsed_dates):
+            if pd.notna(dt) and dt.date() == comparison_date:
+                comparison_col = col
+                break
+        if not comparison_col:
+            st.error("Comparison date not found in data.")
+            st.stop()
+
+        df_filtered["Previous Rank"] = rank_data[comparison_col]
 
         # --- BUCKET LOGIC ---
         def classify_bucket(rank):
@@ -75,12 +98,12 @@ if sheet_url:
             except:
                 return "Unranked"
 
-        df["Bucket"] = df["Latest Rank"].apply(classify_bucket)
+        df_filtered["Bucket"] = df_filtered["Latest Rank"].apply(classify_bucket)
 
         # --- PIE CHART ---
-        bucket_counts = df["Bucket"].value_counts().reset_index()
+        bucket_counts = df_filtered["Bucket"].value_counts().reset_index()
         bucket_counts.columns = ["Bucket", "Count"]
-        bucket_counts["Label"] = bucket_counts.apply(lambda x: f"{x['Bucket']} - {x['Count']} keywords", axis=1)
+        bucket_counts["Label"] = bucket_counts["Bucket"] + " - " + bucket_counts["Count"].astype(str) + " keywords"
         pie = px.pie(bucket_counts, values="Count", names="Label", title="Rank Bucket Distribution")
 
         # --- LAYOUT ---
@@ -91,28 +114,27 @@ if sheet_url:
             st.markdown("### Keywords by Rank Bucket")
             col3, col4, col5 = st.columns(3)
             col3.markdown("**Top 3**")
-            col3.write(df[df["Bucket"] == "Top 3"][keyword_col].tolist())
+            col3.write("\n".join(df_filtered[df_filtered["Bucket"] == "Top 3"][keyword_col].dropna().astype(str)))
             col4.markdown("**Top 5**")
-            col4.write(df[df["Bucket"] == "Top 5"][keyword_col].tolist())
+            col4.write("\n".join(df_filtered[df_filtered["Bucket"] == "Top 5"][keyword_col].dropna().astype(str)))
             col5.markdown("**Top 10**")
-            col5.write(df[df["Bucket"] == "Top 10"][keyword_col].tolist())
+            col5.write("\n".join(df_filtered[df_filtered["Bucket"] == "Top 10"][keyword_col].dropna().astype(str)))
 
         # --- TIME SERIES ---
         with col2:
             st.markdown("### Keyword Trend")
-            keyword_selected = st.selectbox("Select a keyword", df[keyword_col].unique())
+            keyword_selected = st.selectbox("Select a keyword", df_filtered[keyword_col].unique())
 
-            rank_df = df[df[keyword_col] == keyword_selected][selected_cols].T.reset_index()
-            rank_df.columns = ["Date", "Rank"]
-            rank_df["Date"] = rank_df["Date"].apply(parse_flexible_date)
-            rank_df.dropna(inplace=True)
-            rank_df["Rank"] = pd.to_numeric(rank_df["Rank"], errors="coerce")
+            ts_data = df[df[keyword_col] == keyword_selected][filtered_cols].T.reset_index()
+            ts_data.columns = ["Date", "Rank"]
+            ts_data["Date"] = ts_data["Date"].apply(parse_flexible_date)
+            ts_data.dropna(inplace=True)
+            ts_data["Rank"] = pd.to_numeric(ts_data["Rank"], errors="coerce")
 
-            if not rank_df.empty:
-                fig = px.line(rank_df, x="Date", y="Rank", title=f"Rank trend for '{keyword_selected}'",
-                              markers=True, text="Rank")
-                fig.update_traces(textposition="top center")
+            if not ts_data.empty:
+                fig = px.line(ts_data, x="Date", y="Rank", markers=True, title=f"Rank trend for {keyword_selected}", text="Rank")
                 fig.update_yaxes(autorange="reversed")
+                fig.update_traces(textposition="top center")
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No data available for this keyword in selected range.")
@@ -132,23 +154,23 @@ if sheet_url:
                 else:
                     return "No Movement"
             except:
-                if previous == "-" and latest != "-":
+                if str(previous) == "-" and str(latest) != "-":
                     return "Newly Ranked"
                 return "No Movement"
 
-        df["Movement"] = df.apply(lambda row: detect_movement(row["Latest Rank"], row["Previous Rank"]), axis=1)
+        df_filtered["Movement"] = df_filtered.apply(lambda row: detect_movement(row["Latest Rank"], row["Previous Rank"]), axis=1)
 
         col6.markdown("**📈 Progressing**")
-        col6.write(df[df["Movement"] == "Progressing"][keyword_col].tolist())
+        col6.write("\n".join(df_filtered[df_filtered["Movement"] == "Progressing"][keyword_col].dropna().astype(str)))
 
         col7.markdown("**📉 Declining**")
-        col7.write(df[df["Movement"] == "Declining"][keyword_col].tolist())
+        col7.write("\n".join(df_filtered[df_filtered["Movement"] == "Declining"][keyword_col].dropna().astype(str)))
 
         col8.markdown("**➖ No Movement**")
-        col8.write(df[df["Movement"] == "No Movement"][keyword_col].tolist())
+        col8.write("\n".join(df_filtered[df_filtered["Movement"] == "No Movement"][keyword_col].dropna().astype(str)))
 
         col9.markdown("**🆕 Newly Ranked**")
-        col9.write(df[df["Movement"] == "Newly Ranked"][keyword_col].tolist())
+        col9.write("\n".join(df_filtered[df_filtered["Movement"] == "Newly Ranked"][keyword_col].dropna().astype(str)))
 
     except Exception as e:
         st.error(f"❌ Error loading Google Sheet: {e}")
