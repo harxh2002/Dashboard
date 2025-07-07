@@ -49,7 +49,7 @@ if sheet_url:
                 "Last 180 days": 180
             }
             days = days_map[preset_range]
-            end_date = datetime.today()
+            end_date = datetime.today().date()
             start_date = end_date - timedelta(days=days)
         else:
             start_date = st.date_input("Select Start Date")
