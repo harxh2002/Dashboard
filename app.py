@@ -58,7 +58,7 @@ if sheet_url:
                 st.error("Start date must be before end date.")
                 st.stop()
 
-        # Optional: Start date for movement comparison
+        # --- COMPARISON START DATE ---
         st.markdown("### Select Comparison Start Date (For Movement Analysis)")
         comparison_date = st.date_input("Comparison Start Date")
 
@@ -112,13 +112,12 @@ if sheet_url:
         with col1:
             st.plotly_chart(pie, use_container_width=True)
             st.markdown("### Keywords by Rank Bucket")
-            col3, col4, col5 = st.columns(3)
-            col3.markdown("**Top 3**")
-            col3.write("\n".join(df_filtered[df_filtered["Bucket"] == "Top 3"][keyword_col].dropna().astype(str)))
-            col4.markdown("**Top 5**")
-            col4.write("\n".join(df_filtered[df_filtered["Bucket"] == "Top 5"][keyword_col].dropna().astype(str)))
-            col5.markdown("**Top 10**")
-            col5.write("\n".join(df_filtered[df_filtered["Bucket"] == "Top 10"][keyword_col].dropna().astype(str)))
+            st.markdown("**Top 3**")
+            st.dataframe(df_filtered[df_filtered["Bucket"] == "Top 3"][keyword_col].dropna().reset_index(drop=True))
+            st.markdown("**Top 5**")
+            st.dataframe(df_filtered[df_filtered["Bucket"] == "Top 5"][keyword_col].dropna().reset_index(drop=True))
+            st.markdown("**Top 10**")
+            st.dataframe(df_filtered[df_filtered["Bucket"] == "Top 10"][keyword_col].dropna().reset_index(drop=True))
 
         # --- TIME SERIES ---
         with col2:
@@ -141,7 +140,6 @@ if sheet_url:
 
         # --- MOVEMENT COLUMNS ---
         st.markdown("### Keyword Movements")
-        col6, col7, col8, col9 = st.columns(4)
 
         def detect_movement(latest, previous):
             try:
@@ -160,17 +158,17 @@ if sheet_url:
 
         df_filtered["Movement"] = df_filtered.apply(lambda row: detect_movement(row["Latest Rank"], row["Previous Rank"]), axis=1)
 
-        col6.markdown("**📈 Progressing**")
-        col6.write("\n".join(df_filtered[df_filtered["Movement"] == "Progressing"][keyword_col].dropna().astype(str)))
+        st.markdown("**📈 Progressing Keywords**")
+        st.dataframe(df_filtered[df_filtered["Movement"] == "Progressing"][keyword_col].dropna().reset_index(drop=True))
 
-        col7.markdown("**📉 Declining**")
-        col7.write("\n".join(df_filtered[df_filtered["Movement"] == "Declining"][keyword_col].dropna().astype(str)))
+        st.markdown("**📉 Declining Keywords**")
+        st.dataframe(df_filtered[df_filtered["Movement"] == "Declining"][keyword_col].dropna().reset_index(drop=True))
 
-        col8.markdown("**➖ No Movement**")
-        col8.write("\n".join(df_filtered[df_filtered["Movement"] == "No Movement"][keyword_col].dropna().astype(str)))
+        st.markdown("**➖ No Movement**")
+        st.dataframe(df_filtered[df_filtered["Movement"] == "No Movement"][keyword_col].dropna().reset_index(drop=True))
 
-        col9.markdown("**🆕 Newly Ranked**")
-        col9.write("\n".join(df_filtered[df_filtered["Movement"] == "Newly Ranked"][keyword_col].dropna().astype(str)))
+        st.markdown("**🆕 Newly Ranked**")
+        st.dataframe(df_filtered[df_filtered["Movement"] == "Newly Ranked"][keyword_col].dropna().reset_index(drop=True))
 
     except Exception as e:
         st.error(f"❌ Error loading Google Sheet: {e}")
