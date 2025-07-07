@@ -18,10 +18,12 @@ if sheet_url:
         df = pd.read_csv(csv_url)
 
         st.success("✅ Google Sheet connected successfully")
+        st.write("Columns:", df.columns.tolist())
 
-        keyword_col = df.columns[0]  # Keyword column
+        keyword_col = df.columns[0]  # auto-detect keyword column
         rank_data = df.iloc[:, 4:]
 
+        # --- DATE PARSING ---
         def parse_flexible_date(date_str):
             for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
                 try:
@@ -30,94 +32,85 @@ if sheet_url:
                     continue
             return pd.NaT
 
-        parsed_dates = [(col, parse_flexible_date(col)) for col in rank_data.columns if parse_flexible_date(col)]
-        all_dates = [dt for _, dt in parsed_dates if pd.notna(dt)]
+        date_cols = [parse_flexible_date(col) for col in rank_data.columns]
 
-        st.markdown("### Select Date Range")
-        col1, col2 = st.columns(2)
+        # --- CUSTOM DATE RANGE SELECTION ---
+        st.markdown("### Select Custom Date Range")
+        custom_start = st.date_input("📅 Start date", value=(datetime.today() - timedelta(days=15)).date())
+        custom_end = st.date_input("📅 End date", value=datetime.today().date())
 
-        predefined_range = col1.selectbox("Quick Range", ["Last 7 days", "Last 15 days", "Last 30 days", "Last 90 days", "Last 180 days", "Custom Range"])
+        # Convert to datetime for safe comparison
+        custom_start_dt = datetime.combine(custom_start, datetime.min.time())
+        custom_end_dt = datetime.combine(custom_end, datetime.min.time())
 
-        if predefined_range != "Custom Range":
-            days_map = {"Last 7 days": 7, "Last 15 days": 15, "Last 30 days": 30, "Last 90 days": 90, "Last 180 days": 180}
-            end_date = datetime.today()
-            start_date = end_date - timedelta(days=days_map[predefined_range])
-        else:
-            start_date = col1.date_input("Start Date", value=datetime.today() - timedelta(days=7))
-            end_date = col2.date_input("End Date", value=datetime.today())
+        # Filter columns within this custom range
+        selected_cols = [col for col, dt in zip(rank_data.columns, date_cols)
+                         if pd.notna(dt) and custom_start_dt <= dt <= custom_end_dt]
 
-        # Select comparison start date separately
-        st.markdown("### Select Comparison Start Date (For Movement Analysis)")
-        all_date_options = sorted([dt for _, dt in parsed_dates if pd.notna(dt)])
-        filtered_date_options = [dt for dt in all_date_options if start_date <= dt <= end_date]
-        selected_base_date = st.selectbox("Select base date", [dt.strftime("%m-%d-%Y") for dt in filtered_date_options])
-        base_col = next((col for col, dt in parsed_dates if dt.strftime("%m-%d-%Y") == selected_base_date), None)
+        selected_cols = sorted(selected_cols, reverse=True)  # latest to oldest
+        selected_rank_data = rank_data[selected_cols]
 
-        # Filter columns strictly within selected date range
-        filtered_cols = [col for col, dt in parsed_dates if start_date <= dt <= end_date]
-        if len(filtered_cols) < 2:
-            st.warning("Not enough data in selected range.")
+        if len(selected_cols) < 2:
+            st.warning("⚠️ Not enough date columns in selected range to process analysis.")
             st.stop()
 
-        # Let user define custom date range (start and end)
-st.markdown("### Or select a custom date range")
-custom_start = st.date_input("📅 Start date", value=(datetime.today() - timedelta(days=15)).date())
-custom_end = st.date_input("📅 End date", value=datetime.today().date())
+        latest_date = selected_cols[0]
+        prev_date = selected_cols[1]
 
-# Convert to datetime for safe comparison
-custom_start_dt = datetime.combine(custom_start, datetime.min.time())
-custom_end_dt = datetime.combine(custom_end, datetime.min.time())
+        df["Latest Rank"] = selected_rank_data[latest_date]
+        df["Previous Rank"] = selected_rank_data[prev_date]
 
-# Filter columns within this custom range
-selected_cols = [col for col, dt in zip(rank_data.columns, date_cols)
-                 if pd.notna(dt) and custom_start_dt <= dt <= custom_end_dt]
-
-selected_rank_data = rank_data[selected_cols]
-
-
-        latest_col = filtered_cols[0]  # Always use latest column from range
-
-        df["Latest Rank"] = df[latest_col]
-        df["Previous Rank"] = df[base_col]
-
-        # --- RANK BUCKET ---
+        # --- BUCKET LOGIC ---
         def classify_bucket(rank):
             try:
                 r = int(rank)
-                if r <= 3: return "Top 3"
-                elif r <= 5: return "Top 5"
-                elif r <= 10: return "Top 10"
-                else: return "Others"
+                if r <= 3:
+                    return "Top 3"
+                elif r <= 5:
+                    return "Top 5"
+                elif r <= 10:
+                    return "Top 10"
+                else:
+                    return "Others"
             except:
                 return "Unranked"
 
         df["Bucket"] = df["Latest Rank"].apply(classify_bucket)
+
+        # --- PIE CHART ---
         bucket_counts = df["Bucket"].value_counts().reset_index()
         bucket_counts.columns = ["Bucket", "Count"]
-        bucket_counts["Label"] = bucket_counts["Bucket"] + " - " + bucket_counts["Count"].astype(str) + " keywords"
+        bucket_counts["Label"] = bucket_counts.apply(lambda x: f"{x['Bucket']} - {x['Count']} keywords", axis=1)
         pie = px.pie(bucket_counts, values="Count", names="Label", title="Rank Bucket Distribution")
 
-        # --- VISUALS ---
-        col3, col4 = st.columns([2, 2])
-        with col3:
+        # --- LAYOUT ---
+        col1, col2 = st.columns([2, 2])
+
+        with col1:
             st.plotly_chart(pie, use_container_width=True)
             st.markdown("### Keywords by Rank Bucket")
-            col_a, col_b, col_c = st.columns(3)
-            col_a.write(df[df["Bucket"] == "Top 3"][keyword_col].tolist())
-            col_b.write(df[df["Bucket"] == "Top 5"][keyword_col].tolist())
-            col_c.write(df[df["Bucket"] == "Top 10"][keyword_col].tolist())
+            col3, col4, col5 = st.columns(3)
+            col3.markdown("**Top 3**")
+            col3.write(df[df["Bucket"] == "Top 3"][keyword_col].tolist())
+            col4.markdown("**Top 5**")
+            col4.write(df[df["Bucket"] == "Top 5"][keyword_col].tolist())
+            col5.markdown("**Top 10**")
+            col5.write(df[df["Bucket"] == "Top 10"][keyword_col].tolist())
 
-        with col4:
-            st.markdown("### Keyword Time Series Trend")
-            selected_keyword = st.selectbox("Select a keyword", df[keyword_col].unique())
-            trend_df = df[df[keyword_col] == selected_keyword][filtered_cols].T.reset_index()
-            trend_df.columns = ["Date", "Rank"]
-            trend_df["Date"] = trend_df["Date"].apply(parse_flexible_date)
-            trend_df["Rank"] = pd.to_numeric(trend_df["Rank"], errors="coerce")
-            trend_df.dropna(inplace=True)
+        # --- TIME SERIES ---
+        with col2:
+            st.markdown("### Keyword Trend")
+            keyword_selected = st.selectbox("Select a keyword", df[keyword_col].unique())
 
-            if not trend_df.empty:
-                fig = px.line(trend_df, x="Date", y="Rank", text="Rank", title=f"Rank Trend: {selected_keyword}", markers=True)
+            rank_df = df[df[keyword_col] == keyword_selected][selected_cols].T.reset_index()
+            rank_df.columns = ["Date", "Rank"]
+            rank_df["Date"] = rank_df["Date"].apply(parse_flexible_date)
+            rank_df.dropna(inplace=True)
+            rank_df["Rank"] = pd.to_numeric(rank_df["Rank"], errors="coerce")
+
+            if not rank_df.empty:
+                fig = px.line(rank_df, x="Date", y="Rank", title=f"Rank trend for '{keyword_selected}'",
+                              markers=True, text="Rank")
                 fig.update_traces(textposition="top center")
                 fig.update_yaxes(autorange="reversed")
                 st.plotly_chart(fig, use_container_width=True)
@@ -139,7 +132,7 @@ selected_rank_data = rank_data[selected_cols]
                 else:
                     return "No Movement"
             except:
-                if str(previous) == "-" and str(latest) != "-":
+                if previous == "-" and latest != "-":
                     return "Newly Ranked"
                 return "No Movement"
 
