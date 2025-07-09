@@ -86,22 +86,22 @@ st.markdown(f"**📅 Latest Rank is based on column:** `{filtered_cols[-1]}`")
         df_filtered["Previous Rank"] = rank_data[comparison_col]
 
         # --- BUCKET LOGIC ---
-        def classify_bucket(rank):
-            try:
-                r = int(rank)
-                if r <= 3:
-                    return "Top 3"
-                elif r <= 5:
-                    return "Top 5"
-                elif r <= 10:
-                    return "Top 10"
-                else:
-                    return "Others"
-            except:
-                return "Unranked"
+       def classify_bucket(rank):
+    try:
+        r = int(rank)
+        if r <= 3:
+            return "Top 3"
+        elif r <= 5:
+            return "Top 5"
+        elif r <= 10:
+            return "Top 10"
+        else:
+            return None  # Exclude others
+    except:
+        return None  # Exclude unranked or invalid
 
-        df_filtered["Bucket"] = df_filtered["Latest Rank"].apply(classify_bucket)
-
+       df_filtered["Bucket"] = df_filtered["Latest Rank"].apply(classify_bucket)
+df_filtered = df_filtered[df_filtered["Bucket"].notna()]  # ✅ keep only Top 3/5/10
         # --- PIE CHART ---
         bucket_counts = df_filtered["Bucket"].value_counts().reset_index()
         bucket_counts.columns = ["Bucket", "Count"]
