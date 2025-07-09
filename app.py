@@ -20,7 +20,7 @@ if sheet_url:
         st.success("✅ Google Sheet connected successfully")
         st.write("Columns:", df.columns.tolist())
 
-        keyword_col = df.columns[0]  # auto-detect keyword column
+        keyword_col = df.columns[0]
         rank_data = df.iloc[:, 4:]
 
         # --- DATE PARSING ---
@@ -36,27 +36,26 @@ if sheet_url:
         valid_date_cols = [col for col, dt in zip(rank_data.columns, parsed_dates) if pd.notna(dt)]
 
         # --- CUSTOM DATE RANGE ONLY ---
-        st.markdown("### Select Date Range (Custom Only)")
+        st.markdown("### Select Custom Date Range")
         start_date = st.date_input("Select Start Date")
         end_date = st.date_input("Select End Date")
-
         if start_date > end_date:
             st.error("Start date must be before end date.")
             st.stop()
 
+        # --- FILTER COLUMNS BASED ON RANGE ---
         filtered_cols = [col for col, dt in zip(rank_data.columns, parsed_dates)
                          if pd.notna(dt) and start_date <= dt.date() <= end_date]
 
-        if not filtered_cols:
-            st.warning("⚠️ No valid date columns in selected range.")
+        if len(filtered_cols) < 1:
+            st.warning("⚠️ Not enough date columns in selected range to process analysis.")
             st.stop()
 
-        last_col = filtered_cols[-1]
-
         df_filtered = df.copy()
-        df_filtered["Latest Rank"] = rank_data[last_col]
+        latest_col = filtered_cols[-1]
+        df_filtered["Latest Rank"] = pd.to_numeric(rank_data[latest_col], errors='coerce')
 
-        # --- RANK BUCKET LOGIC (Strict) ---
+        # --- BUCKET LOGIC (CLEAN) ---
         def classify_bucket(rank):
             try:
                 r = int(rank)
@@ -73,12 +72,29 @@ if sheet_url:
 
         df_filtered["Bucket"] = df_filtered["Latest Rank"].apply(classify_bucket)
 
-        # --- PIE CHART ---
+        # --- SUMMARY COUNTS ---
+        st.markdown("### 📊 Rank Bucket Summary (Based on End Date Only)")
+        latest_ranks = df_filtered["Latest Rank"]
+        total_keywords = latest_ranks.notna().sum()
+        top3_count = latest_ranks[latest_ranks <= 3].count()
+        top5_count = latest_ranks[(latest_ranks > 3) & (latest_ranks <= 5)].count()
+        top10_count = latest_ranks[(latest_ranks > 5) & (latest_ranks <= 10)].count()
+
+        colA, colB, colC, colD = st.columns(4)
+        colA.metric("🔢 Total Keywords", total_keywords)
+        colB.metric("🥇 Top 3", top3_count)
+        colC.metric("🏅 Top 5", top5_count)
+        colD.metric("🎯 Top 10", top10_count)
+
+        # --- PIE CHART WITH PERCENTAGE ---
         bucket_counts = df_filtered["Bucket"].value_counts().reset_index()
         bucket_counts.columns = ["Bucket", "Count"]
         bucket_counts = bucket_counts[bucket_counts["Bucket"].notna()]
-        bucket_counts["Label"] = bucket_counts["Bucket"] + " - " + bucket_counts["Count"].astype(str) + " keywords"
-        pie = px.pie(bucket_counts, values="Count", names="Label", title="Rank Bucket Distribution")
+        bucket_counts["Percentage"] = (bucket_counts["Count"] / total_keywords) * 100
+        bucket_counts["Label"] = bucket_counts["Bucket"] + " - " + \
+                                 bucket_counts["Count"].astype(str) + " keywords (" + \
+                                 bucket_counts["Percentage"].round(1).astype(str) + "%)"
+        pie = px.pie(bucket_counts, values="Count", names="Label", title="🎯 Rank Bucket Distribution")
 
         # --- LAYOUT ---
         col1, col2 = st.columns([2, 2])
@@ -96,8 +112,7 @@ if sheet_url:
         # --- TIME SERIES ---
         with col2:
             st.markdown("### Keyword Trend")
-            keyword_selected = st.selectbox("Select a keyword", df_filtered[keyword_col].dropna().unique())
-
+            keyword_selected = st.selectbox("Select a keyword", df_filtered[keyword_col].unique())
             ts_data = df[df[keyword_col] == keyword_selected][filtered_cols].T.reset_index()
             ts_data.columns = ["Date", "Rank"]
             ts_data["Date"] = ts_data["Date"].apply(parse_flexible_date)
@@ -105,7 +120,8 @@ if sheet_url:
             ts_data["Rank"] = pd.to_numeric(ts_data["Rank"], errors="coerce")
 
             if not ts_data.empty:
-                fig = px.line(ts_data, x="Date", y="Rank", markers=True, title=f"Rank trend for {keyword_selected}", text="Rank")
+                fig = px.line(ts_data, x="Date", y="Rank", markers=True,
+                              title=f"Rank trend for {keyword_selected}", text="Rank")
                 fig.update_yaxes(autorange="reversed")
                 fig.update_traces(textposition="top center")
                 st.plotly_chart(fig, use_container_width=True)
