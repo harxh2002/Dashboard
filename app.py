@@ -70,6 +70,8 @@ if sheet_url:
 
         df_filtered = df.copy()
         df_filtered["Latest Rank"] = rank_data[filtered_cols[-1]]
+st.markdown(f"**📅 Latest Rank is based on column:** `{filtered_cols[-1]}`")
+
 
         # Find closest column to comparison date
         comparison_col = None
