@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
-st.title("📈 CribApp Keyword Ranking Dashboard")
+st.title("📈Keyword Ranking Dashboard")
 
 # --- GOOGLE SHEET INPUT ---
 st.markdown("### Paste your Google Sheet link")
