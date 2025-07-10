@@ -5,7 +5,27 @@ from datetime import datetime
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
-st.title("📈 Keyword Ranking Dashboard (Precise Bucket Logic)")
+st.markdown("""
+    <style>
+        .main {background-color: #f9f9f9;}
+        h1 {color: #2c3e50;}
+        .stButton>button {
+            background-color: #4CAF50;
+            color: white;
+        }
+        footer {visibility: hidden;}
+        .footer-text {
+            position: fixed;
+            bottom: 10px;
+            right: 20px;
+            font-size: 12px;
+            color: gray;
+        }
+    </style>
+    <div class='footer-text'>Built by Harsh Tiwari</div>
+""", unsafe_allow_html=True)
+
+st.title("📈 Keyword Ranking Dashboard")
 
 # --- GOOGLE SHEET INPUT ---
 st.markdown("### Paste your Google Sheet link")
@@ -20,7 +40,7 @@ if sheet_url:
         st.success("✅ Google Sheet connected successfully")
         st.write("Columns:", df.columns.tolist())
 
-        keyword_col = df.columns[0]  # first column as keyword
+        keyword_col = df.columns[0]
 
         def parse_flexible_date(date_str):
             for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
@@ -30,17 +50,16 @@ if sheet_url:
                     continue
             return pd.NaT
 
-        # Parse date columns and group duplicates
-        raw_date_cols = df.columns[4:]
-        parsed_dates = [parse_flexible_date(col) for col in raw_date_cols]
+        parsed_dates = [parse_flexible_date(col) for col in df.columns[4:]]
         rank_data_raw = df.iloc[:, 4:]
+        valid_date_cols = [(col, dt) for col, dt in zip(rank_data_raw.columns, parsed_dates) if pd.notna(dt)]
 
+        # Group duplicate dates and take minimum
         date_groups = {}
-        for col, dt in zip(rank_data_raw.columns, parsed_dates):
-            if pd.notna(dt):
-                if dt not in date_groups:
-                    date_groups[dt] = []
-                date_groups[dt].append(col)
+        for col, dt in valid_date_cols:
+            if dt not in date_groups:
+                date_groups[dt] = []
+            date_groups[dt].append(col)
 
         rank_data = pd.DataFrame(index=df.index)
         for dt, cols in date_groups.items():
@@ -48,33 +67,47 @@ if sheet_url:
             rank_data[dt.strftime("%m-%d-%Y")] = ranks.min(axis=1)
 
         # --- USER INPUT ---
-        st.markdown("### Select End Date")
+        st.markdown("### Select Custom Date Range")
+        start_date_input = st.text_input("Start Date (MM-DD-YYYY or MM/DD/YYYY)")
         end_date_input = st.text_input("End Date (MM-DD-YYYY or MM/DD/YYYY)")
 
-        if not end_date_input:
+        def parse_user_date(date_str):
+            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
+                try:
+                    return datetime.strptime(date_str, fmt).date()
+                except:
+                    continue
+            st.error(f"❌ Invalid input: '{date_str}'. Must be MM-DD-YYYY or MM/DD/YYYY.")
             st.stop()
 
-        end_date = parse_flexible_date(end_date_input)
-        if pd.isna(end_date):
-            st.error("❌ Invalid End Date format. Use MM-DD-YYYY or MM/DD/YYYY.")
+        if not start_date_input or not end_date_input:
             st.stop()
 
-        end_date_col = end_date.strftime("%m-%d-%Y")
-        if end_date_col not in rank_data.columns:
-            st.error(f"End date {end_date_col} not found in data.")
+        start_date = parse_user_date(start_date_input)
+        end_date = parse_user_date(end_date_input)
+
+        if start_date > end_date:
+            st.error("Start date must be before end date.")
             st.stop()
 
+        filtered_cols = [col for col in rank_data.columns if parse_flexible_date(col) >= start_date and parse_flexible_date(col) <= end_date]
+
+        if len(filtered_cols) < 1:
+            st.warning("⚠️ No valid rank columns in selected range.")
+            st.stop()
+
+        end_col = filtered_cols[-1]
         df_filtered = df.copy()
-        df_filtered["Latest Rank"] = rank_data[end_date_col]
+        df_filtered["Latest Rank"] = rank_data[end_col]
 
         def classify_bucket(rank):
             try:
-                r = int(rank)
-                if r <= 3:
+                rank = int(rank)
+                if rank <= 3:
                     return "Top 3"
-                elif r <= 5:
+                elif rank <= 5:
                     return "Top 5"
-                elif r <= 10:
+                elif rank <= 10:
                     return "Top 10"
                 else:
                     return None
@@ -82,31 +115,31 @@ if sheet_url:
                 return None
 
         df_filtered["Bucket"] = df_filtered["Latest Rank"].apply(classify_bucket)
-        df_final = df_filtered.dropna(subset=["Bucket"]).copy()
+        df_filtered = df_filtered.dropna(subset=["Bucket"])
 
         # --- PIE CHART ---
-        bucket_counts = df_final["Bucket"].value_counts().reset_index()
+        bucket_counts = df_filtered["Bucket"].value_counts().reset_index()
         bucket_counts.columns = ["Bucket", "Count"]
         bucket_counts["Label"] = bucket_counts["Bucket"] + " - " + bucket_counts["Count"].astype(str) + " keywords"
         pie = px.pie(bucket_counts, values="Count", names="Label", title="Rank Bucket Distribution")
 
-        # --- LAYOUT ---
         col1, col2 = st.columns([2, 2])
 
         with col1:
             st.plotly_chart(pie, use_container_width=True)
             st.markdown("### Keywords by Rank Bucket")
             st.markdown("**Top 3**")
-            st.dataframe(df_final[df_final["Bucket"] == "Top 3"][keyword_col].dropna().reset_index(drop=True))
+            st.dataframe(df_filtered[df_filtered["Bucket"] == "Top 3"][keyword_col].dropna().reset_index(drop=True))
             st.markdown("**Top 5**")
-            st.dataframe(df_final[df_final["Bucket"] == "Top 5"][keyword_col].dropna().reset_index(drop=True))
+            st.dataframe(df_filtered[df_filtered["Bucket"] == "Top 5"][keyword_col].dropna().reset_index(drop=True))
             st.markdown("**Top 10**")
-            st.dataframe(df_final[df_final["Bucket"] == "Top 10"][keyword_col].dropna().reset_index(drop=True))
+            st.dataframe(df_filtered[df_filtered["Bucket"] == "Top 10"][keyword_col].dropna().reset_index(drop=True))
 
         with col2:
             st.markdown("### Keyword Trend")
             keyword_selected = st.selectbox("Select a keyword", df[keyword_col].unique())
-            ts_data = df[df[keyword_col] == keyword_selected][rank_data.columns].T.reset_index()
+
+            ts_data = df[df[keyword_col] == keyword_selected][filtered_cols].T.reset_index()
             ts_data.columns = ["Date", "Rank"]
             ts_data["Date"] = ts_data["Date"].apply(parse_flexible_date)
             ts_data.dropna(inplace=True)
