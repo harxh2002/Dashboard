@@ -3,3 +3,6 @@ pandas
 plotly
 prophet
 scikit-learn
+gspread
+gspread_dataframe
+oauth2client
