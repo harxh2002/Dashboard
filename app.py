@@ -23,20 +23,32 @@ if sheet_url:
         st.write("Columns:", df.columns.tolist())
 
         keyword_col = df.columns[0]  # auto-detect keyword column
-        rank_data = df.iloc[:, 4:]
 
-        # --- DATE PARSING ---
+        # --- DATE PARSING WITH DUPLICATE DATE HANDLING ---
         def parse_flexible_date(date_str):
-            try:
-                return datetime.strptime(date_str, "%m-%d-%Y")
-            except:
+            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
                 try:
-                    return datetime.strptime(date_str, "%m/%d/%Y")
+                    return datetime.strptime(date_str, fmt).date()
                 except:
-                    raise ValueError(f"Invalid column date format: '{date_str}'. Must be MM-DD-YYYY or MM/DD/YYYY.")
+                    continue
+            return pd.NaT
 
-        parsed_dates = [parse_flexible_date(col) for col in rank_data.columns]
-        valid_date_cols = [col for col, dt in zip(rank_data.columns, parsed_dates) if pd.notna(dt)]
+        parsed_dates = [parse_flexible_date(col) for col in df.columns[4:]]
+        rank_data_raw = df.iloc[:, 4:]
+        valid_date_cols = [(col, dt) for col, dt in zip(rank_data_raw.columns, parsed_dates) if pd.notna(dt)]
+
+        # Group columns by parsed date and take minimum rank per row for duplicates
+        date_groups = {}
+        for col, dt in valid_date_cols:
+            if dt not in date_groups:
+                date_groups[dt] = []
+            date_groups[dt].append(col)
+
+        # Create a new DataFrame where each date appears once with min value per row
+        rank_data = pd.DataFrame(index=df.index)
+        for dt, cols in date_groups.items():
+            ranks = rank_data_raw[cols].apply(pd.to_numeric, errors='coerce')
+            rank_data[dt.strftime("%m-%d-%Y")] = ranks.min(axis=1)
 
         # --- USER DATE INPUT ---
         st.markdown("### Select Custom Date Range")
@@ -63,7 +75,7 @@ if sheet_url:
             st.error("Start date must be before end date.")
             st.stop()
 
-        filtered_cols = [col for col, dt in zip(rank_data.columns, parsed_dates) if pd.notna(dt) and start_date <= dt.date() <= end_date]
+        filtered_cols = [col for col in rank_data.columns if parse_flexible_date(col).date() >= start_date and parse_flexible_date(col).date() <= end_date]
 
         if len(filtered_cols) < 2:
             st.warning("⚠️ Not enough date columns in selected range to process analysis.")
