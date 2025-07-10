@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
-st.title("📈 Daily Keyword Ranking Dashboard ")
+st.title("📱 Multi-Platform ASO Keyword Rank Dashboard")
 
 # --- SIDEBAR INPUTS ---
 st.sidebar.header("🔗 Data Configuration")
@@ -13,38 +15,39 @@ sheet_url = st.sidebar.text_input("Google Sheet URL")
 platform = st.sidebar.radio("Select Platform", ["Android", "iOS"])
 end_date_input = st.sidebar.date_input("Select End Date")
 
+# --- HELPER: DATE PARSING ---
+def parse_flexible_date(date_str):
+    for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except:
+            continue
+    return pd.NaT
+
 if sheet_url:
     try:
         sheet_id = sheet_url.split("/")[5]
-        sheet_metadata_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:json"
+        sheet_url_full = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
 
-        import requests
-        import json
-        metadata_raw = requests.get(sheet_metadata_url).text
-        metadata_cleaned = metadata_raw[metadata_raw.find("{" ):metadata_raw.rfind("}") + 1]
-        metadata_json = json.loads(metadata_cleaned)
-        sheet_titles = [entry["properties"]["title"] for entry in metadata_json["Android","iOS"]]
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_url(sheet_url_full)
 
-        if platform not in sheet_titles:
-            st.error(f"❌ '{platform}' sheet not found in Google Sheet.")
+        # Sheet name detection (strict match)
+        available_sheets = [ws.title for ws in sheet.worksheets()]
+        if platform not in available_sheets:
+            st.error(f"❌ '{platform}' sheet not found in the spreadsheet.")
             st.stop()
 
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={platform}"
-        df = pd.read_csv(csv_url)
+        ws = sheet.worksheet(platform)
+        data = ws.get_all_values()
+        df = pd.DataFrame(data[1:], columns=data[0])
 
-        st.success(f"✅ Google Sheet ({platform}) connected successfully")
+        st.success(f"✅ Connected to '{platform}' sheet successfully")
         st.write("Columns:", df.columns.tolist())
 
-        keyword_col = df.columns[0]  # first column as keyword
-
-        def parse_flexible_date(date_str):
-            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
-                try:
-                    return datetime.strptime(date_str, fmt).date()
-                except:
-                    continue
-            return pd.NaT
-
+        keyword_col = df.columns[0]  # First column is assumed as keyword
         raw_date_cols = df.columns[4:]
         parsed_dates = [parse_flexible_date(col) for col in raw_date_cols]
         rank_data_raw = df.iloc[:, 4:]
@@ -130,48 +133,6 @@ if sheet_url:
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No data available for this keyword in selected range.")
-
-        st.divider()
-        st.subheader("📉 Daily Movement Summary")
-        date_keys = list(rank_data.columns)
-        date_keys_sorted = sorted(date_keys, key=lambda x: parse_flexible_date(x))
-
-        try:
-            end_idx = date_keys_sorted.index(end_date_col)
-            prev_date_col = date_keys_sorted[end_idx - 1]
-        except:
-            st.warning("No previous date available for comparison.")
-            prev_date_col = None
-
-        if prev_date_col:
-            df_filtered["Previous Rank"] = rank_data[prev_date_col]
-
-            def detect_movement(latest, previous):
-                try:
-                    latest = int(latest)
-                    previous = int(previous)
-                    if latest < previous:
-                        return "Progressed"
-                    elif latest > previous:
-                        return "Declined"
-                    else:
-                        return "No Movement"
-                except:
-                    if (str(previous) == "-" or pd.isna(previous)) and pd.notna(latest):
-                        return "Newly Ranked"
-                    return "No Movement"
-
-            df_filtered["Movement"] = df_filtered.apply(lambda row: detect_movement(row["Latest Rank"], row["Previous Rank"]), axis=1)
-
-            with st.expander("View Movement Details"):
-                st.markdown("**📈 Progressed Keywords**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "Progressed"][keyword_col].dropna().reset_index(drop=True))
-                st.markdown("**📉 Declined Keywords**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "Declined"][keyword_col].dropna().reset_index(drop=True))
-                st.markdown("**➖ No Movement**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "No Movement"][keyword_col].dropna().reset_index(drop=True))
-                st.markdown("**🆕 Newly Ranked**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "Newly Ranked"][keyword_col].dropna().reset_index(drop=True))
 
         st.markdown("""
         <div style='text-align: right; font-size: 12px; margin-top: 50px;'>
