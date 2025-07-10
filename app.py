@@ -75,7 +75,11 @@ if sheet_url:
             st.error("Start date must be before end date.")
             st.stop()
 
-        filtered_cols = [col for col in rank_data.columns if parse_flexible_date(col).date() >= start_date and parse_flexible_date(col).date() <= end_date]
+        filtered_cols = [
+    col for col in rank_data.columns
+    if start_date <= parse_flexible_date(col) <= end_date
+]
+
 
         if len(filtered_cols) < 2:
             st.warning("⚠️ Not enough date columns in selected range to process analysis.")
