@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
-import requests
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
@@ -11,33 +10,17 @@ st.title("📈 Daily Keyword Ranking Dashboard ")
 # --- SIDEBAR INPUTS ---
 st.sidebar.header("🔗 Data Configuration")
 sheet_url = st.sidebar.text_input("Google Sheet URL")
+platform = st.sidebar.radio("Select Platform", ["Android", "iOS"])
 end_date_input = st.sidebar.date_input("Select End Date")
 
 if sheet_url:
     try:
         sheet_id = sheet_url.split("/")[5]
-
-        # --- PLATFORM DETECTION ---
-        available_tabs = []
-        for tab in ["iOS", "Android"]:
-            try:
-                check_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={tab}"
-                response = requests.head(check_url)
-                if response.status_code == 200:
-                    available_tabs.append(tab)
-            except:
-                pass
-
-        if not available_tabs:
-            st.error("❌ No valid tabs named 'iOS' or 'Android' found in the sheet.")
-            st.stop()
-
-        platform = st.sidebar.radio("Select Platform Tab", available_tabs)
-
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={platform}"
+        platform_gid = {"Android": "0", "iOS": "1"}  # Assumes iOS is second tab, adjust as needed
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={platform_gid[platform]}"
         df = pd.read_csv(csv_url)
 
-        st.success(f"✅ Connected to '{platform}' tab successfully")
+        st.success(f"✅ {platform} Sheet connected successfully")
         st.write("Columns:", df.columns.tolist())
 
         keyword_col = df.columns[0]  # first column as keyword
