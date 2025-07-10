@@ -44,13 +44,24 @@ if sheet_url and platform:
                     date_groups[dt] = []
                 date_groups[dt].append(col)
 
-        rank_data = pd.DataFrame(index=df.index)
-        for dt, cols in date_groups.items():
-            ranks = rank_data_raw[cols].apply(pd.to_numeric, errors='coerce')
-            rank_data[dt.strftime("%m-%d-%Y")] = ranks.min(axis=1)
+     rank_data = pd.DataFrame(index=df.index)
+date_lookup_map = {}  # Maps datetime.date → column name used
 
-        end_date = end_date_input
-        end_date_col = end_date.strftime("%m-%d-%Y")
+for dt, cols in date_groups.items():
+    if pd.notna(dt):
+        ranks = rank_data_raw[cols].apply(pd.to_numeric, errors='coerce')
+        col_label = dt.strftime("%m-%d-%Y")
+        rank_data[col_label] = ranks.min(axis=1)
+        date_lookup_map[dt] = col_label
+
+# Normalize end_date to same format
+end_date = parse_flexible_date(end_date_input_str)
+end_date_col = date_lookup_map.get(end_date)
+
+if not end_date_col or end_date_col not in rank_data.columns:
+    st.error(f"End date {end_date.strftime('%m-%d-%Y')} not found in data.")
+    st.stop()
+
 
         if end_date_col not in rank_data.columns:
             st.error(f"End date {end_date_col} not found in data.")
