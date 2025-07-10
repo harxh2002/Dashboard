@@ -75,13 +75,9 @@ if sheet_url:
             st.error("Start date must be before end date.")
             st.stop()
 
-        filtered_cols = [
-    col for col in rank_data.columns
-    if start_date <= parse_flexible_date(col) <= end_date
-]
+        filtered_cols = [col for col in rank_data.columns if start_date <= parse_flexible_date(col) <= end_date]
 
-
-        if len(filtered_cols) < 2:
+        if len(filtered_cols) < 1:
             st.warning("⚠️ Not enough date columns in selected range to process analysis.")
             st.stop()
 
@@ -89,15 +85,10 @@ if sheet_url:
         df_filtered = df.copy()
         df_filtered["Latest Rank"] = rank_data[latest_col]
 
-        # --- ML-BASED RANK BUCKET ---
-        numeric_ranks = rank_data[filtered_cols].apply(pd.to_numeric, errors='coerce')
+        # --- SIMPLIFIED ML RANK BUCKET USING ONLY LATEST RANK ---
         df_ml = pd.DataFrame()
         df_ml['Keyword'] = df[keyword_col]
-        df_ml['Latest'] = numeric_ranks[latest_col]
-        df_ml['Avg'] = numeric_ranks.mean(axis=1)
-        df_ml['Std'] = numeric_ranks.std(axis=1)
-        df_ml['Days Ranked'] = numeric_ranks.notna().sum(axis=1)
-        df_ml['Movement'] = numeric_ranks[filtered_cols[-1]] - numeric_ranks[filtered_cols[0]]
+        df_ml['Latest'] = pd.to_numeric(rank_data[latest_col], errors='coerce')
 
         def label_bucket(rank):
             try:
@@ -116,15 +107,14 @@ if sheet_url:
         df_ml['Target'] = df_ml['Latest'].apply(label_bucket)
         df_train = df_ml.dropna(subset=['Target'])
 
-        features = ['Latest', 'Avg', 'Std', 'Days Ranked', 'Movement']
-        X_train = df_train[features]
+        X_train = df_train[['Latest']]
         y_train = LabelEncoder().fit_transform(df_train['Target'])
 
         model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X_train, y_train)
 
         df_ml = df_ml.drop(columns='Target')
-        df_ml['Predicted'] = model.predict(df_ml[features])
+        df_ml['Predicted'] = model.predict(df_ml[['Latest']])
         label_map = {i: l for i, l in enumerate(['Top 3', 'Top 5', 'Top 10'])}
         df_ml['Bucket'] = df_ml['Predicted'].map(label_map)
 
