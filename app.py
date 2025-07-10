@@ -4,14 +4,23 @@ import plotly.express as px
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
-st.title("📈 Daily Keyword Ranking Dashboard ")
+st.set_page_config(page_title="Multi-Platform ASO Keyword Rank Dashboard", layout="wide")
+st.title("📱 Multi-Platform ASO Keyword Rank Dashboard")
 
 # --- SIDEBAR INPUTS ---
 st.sidebar.header("🔗 Data Configuration")
 sheet_url = st.sidebar.text_input("Google Sheet URL")
-platform = st.sidebar.radio("Select Platform", ["Android", "iOS"])
+platform = st.sidebar.radio("Select Platform", options=["Android", "iOS"])
 end_date_input = st.sidebar.date_input("Select End Date")
+
+# --- LOAD CSV ---
+def parse_flexible_date(date_str):
+    for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except:
+            continue
+    return pd.NaT
 
 if sheet_url and platform:
     try:
@@ -19,18 +28,10 @@ if sheet_url and platform:
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={platform}"
         df = pd.read_csv(csv_url)
 
-        st.success(f"✅ {platform} Sheet loaded successfully")
+        st.success(f"✅ Connected to '{platform}' tab successfully!")
         st.write("Columns:", df.columns.tolist())
 
         keyword_col = df.columns[0]  # first column as keyword
-
-        def parse_flexible_date(date_str):
-            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
-                try:
-                    return datetime.strptime(date_str, fmt).date()
-                except:
-                    continue
-            return pd.NaT
 
         raw_date_cols = df.columns[4:]
         parsed_dates = [parse_flexible_date(col) for col in raw_date_cols]
@@ -118,48 +119,6 @@ if sheet_url and platform:
         else:
             st.info("No data available for this keyword in selected range.")
 
-        st.divider()
-        st.subheader("📉 Daily Movement Summary")
-        date_keys = list(rank_data.columns)
-        date_keys_sorted = sorted(date_keys, key=lambda x: parse_flexible_date(x))
-
-        try:
-            end_idx = date_keys_sorted.index(end_date_col)
-            prev_date_col = date_keys_sorted[end_idx - 1]
-        except:
-            st.warning("No previous date available for comparison.")
-            prev_date_col = None
-
-        if prev_date_col:
-            df_filtered["Previous Rank"] = rank_data[prev_date_col]
-
-            def detect_movement(latest, previous):
-                try:
-                    latest = int(latest)
-                    previous = int(previous)
-                    if latest < previous:
-                        return "Progressed"
-                    elif latest > previous:
-                        return "Declined"
-                    else:
-                        return "No Movement"
-                except:
-                    if (str(previous) == "-" or pd.isna(previous)) and pd.notna(latest):
-                        return "Newly Ranked"
-                    return "No Movement"
-
-            df_filtered["Movement"] = df_filtered.apply(lambda row: detect_movement(row["Latest Rank"], row["Previous Rank"]), axis=1)
-
-            with st.expander("View Movement Details"):
-                st.markdown("**📈 Progressed Keywords**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "Progressed"][keyword_col].dropna().reset_index(drop=True))
-                st.markdown("**📉 Declined Keywords**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "Declined"][keyword_col].dropna().reset_index(drop=True))
-                st.markdown("**➖ No Movement**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "No Movement"][keyword_col].dropna().reset_index(drop=True))
-                st.markdown("**🆕 Newly Ranked**")
-                st.dataframe(df_filtered[df_filtered["Movement"] == "Newly Ranked"][keyword_col].dropna().reset_index(drop=True))
-
         st.markdown("""
         <div style='text-align: right; font-size: 12px; margin-top: 50px;'>
             Built by Harsh Tiwari
@@ -167,4 +126,4 @@ if sheet_url and platform:
         """, unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"❌ Error loading data: {e}")
+        st.error(f"❌ Error loading Google Sheet: {e}")
