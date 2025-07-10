@@ -50,7 +50,7 @@ if sheet_url and platform:
             rank_data[dt.strftime("%m-%d-%Y")] = ranks.min(axis=1)
 
         end_date = end_date_input
-        end_date_col = end_date.strftime("%m-%d-%Y")
+        end_date_col = end_date.strftime("%m-%d-%Y","%m/%d/%Y")
 
         if end_date_col not in rank_data.columns:
             st.error(f"End date {end_date_col} not found in data.")
