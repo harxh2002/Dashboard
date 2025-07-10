@@ -23,7 +23,7 @@ if sheet_url:
         metadata_raw = requests.get(sheet_metadata_url).text
         metadata_cleaned = metadata_raw[metadata_raw.find("{" ):metadata_raw.rfind("}") + 1]
         metadata_json = json.loads(metadata_cleaned)
-        sheet_titles = [entry["properties"]["title"] for entry in metadata_json["sheets"]]
+        sheet_titles = [entry["properties"]["title"] for entry in metadata_json["Android","iOS"]]
 
         if platform not in sheet_titles:
             st.error(f"❌ '{platform}' sheet not found in Google Sheet.")
