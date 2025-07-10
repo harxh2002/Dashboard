@@ -11,7 +11,7 @@ st.title("📱 Multi-Platform ASO Keyword Rank Dashboard")
 st.sidebar.header("🔗 Data Configuration")
 sheet_url = st.sidebar.text_input("Google Sheet URL")
 platform = st.sidebar.radio("Select Platform", options=["Android", "iOS"])
-end_date_input = st.sidebar.date_input("Select End Date")
+end_date_input_str = st.sidebar.text_input("Select End Date (MM-DD-YYYY or MM/DD/YYYY)")
 
 # --- LOAD CSV ---
 def parse_flexible_date(date_str):
@@ -22,8 +22,13 @@ def parse_flexible_date(date_str):
             continue
     return pd.NaT
 
-if sheet_url and platform:
+if sheet_url and platform and end_date_input_str:
     try:
+        end_date = parse_flexible_date(end_date_input_str)
+        if pd.isna(end_date):
+            st.error("❌ Invalid end date format. Please use MM-DD-YYYY or MM/DD/YYYY.")
+            st.stop()
+
         sheet_id = sheet_url.split("/")[5]
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={platform}"
         df = pd.read_csv(csv_url)
@@ -37,38 +42,30 @@ if sheet_url and platform:
         parsed_dates = [parse_flexible_date(col) for col in raw_date_cols]
         rank_data_raw = df.iloc[:, 4:]
 
-        date_groups = {}
-        for col, dt in zip(rank_data_raw.columns, parsed_dates):
+        rank_data = pd.DataFrame(index=df.index)
+        date_lookup_map = {}  # Maps datetime.date → column name used
+
+        for dt, cols in zip(parsed_dates, raw_date_cols):
             if pd.notna(dt):
-                if dt not in date_groups:
-                    date_groups[dt] = []
-                date_groups[dt].append(col)
+                if dt not in date_lookup_map:
+                    date_lookup_map[dt] = []
+                date_lookup_map[dt].append(cols)
 
-     rank_data = pd.DataFrame(index=df.index)
-date_lookup_map = {}  # Maps datetime.date → column name used
+        processed_data = pd.DataFrame(index=df.index)
+        for dt, cols in date_lookup_map.items():
+            ranks = rank_data_raw[cols].apply(pd.to_numeric, errors='coerce')
+            col_label = dt.strftime("%m-%d-%Y")
+            processed_data[col_label] = ranks.min(axis=1)
+            date_lookup_map[dt] = col_label
 
-for dt, cols in date_groups.items():
-    if pd.notna(dt):
-        ranks = rank_data_raw[cols].apply(pd.to_numeric, errors='coerce')
-        col_label = dt.strftime("%m-%d-%Y")
-        rank_data[col_label] = ranks.min(axis=1)
-        date_lookup_map[dt] = col_label
+        end_date_col = date_lookup_map.get(end_date)
 
-# Normalize end_date to same format
-end_date = parse_flexible_date(end_date_input_str)
-end_date_col = date_lookup_map.get(end_date)
-
-if not end_date_col or end_date_col not in rank_data.columns:
-    st.error(f"End date {end_date.strftime('%m-%d-%Y')} not found in data.")
-    st.stop()
-
-
-        if end_date_col not in rank_data.columns:
-            st.error(f"End date {end_date_col} not found in data.")
+        if not end_date_col or end_date_col not in processed_data.columns:
+            st.error(f"End date {end_date.strftime('%m-%d-%Y')} not found in data.")
             st.stop()
 
         df_filtered = df.copy()
-        df_filtered["Latest Rank"] = rank_data[end_date_col]
+        df_filtered["Latest Rank"] = processed_data[end_date_col]
 
         def classify_bucket(rank):
             try:
@@ -116,7 +113,7 @@ if not end_date_col or end_date_col not in rank_data.columns:
         st.divider()
         st.subheader("📈 Keyword Trend Analysis")
         keyword_selected = st.selectbox("Select a keyword", df[keyword_col].unique())
-        ts_data = df[df[keyword_col] == keyword_selected][rank_data.columns].T.reset_index()
+        ts_data = df[df[keyword_col] == keyword_selected][processed_data.columns].T.reset_index()
         ts_data.columns = ["Date", "Rank"]
         ts_data["Date"] = ts_data["Date"].apply(parse_flexible_date)
         ts_data.dropna(inplace=True)
