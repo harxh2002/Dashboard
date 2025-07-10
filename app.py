@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import gspread
+from google.auth.transport.requests import Request
+from google.oauth2.service_account import Credentials
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
@@ -14,11 +17,32 @@ end_date_input = st.sidebar.date_input("Select End Date")
 
 if sheet_url:
     try:
+        # --- Extract Sheet ID ---
         sheet_id = sheet_url.split("/")[5]
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
-        df = pd.read_csv(csv_url)
 
-        st.success("✅ Google Sheet connected successfully")
+        # --- Setup Google Sheets API Access ---
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(sheet_id)
+        worksheet_list = sheet.worksheets()
+        tab_names = [ws.title for ws in worksheet_list]
+
+        platforms = []
+        if "iOS" in tab_names:
+            platforms.append("iOS")
+        if "Android" in tab_names:
+            platforms.append("Android")
+
+        if not platforms:
+            st.error("No valid 'iOS' or 'Android' tabs found in the sheet.")
+            st.stop()
+
+        platform_selected = st.sidebar.radio("Select Platform", platforms)
+        ws = sheet.worksheet(platform_selected)
+        df = pd.DataFrame(ws.get_all_records())
+
+        st.success(f"✅ Connected to {platform_selected} tab successfully")
         st.write("Columns:", df.columns.tolist())
 
         keyword_col = df.columns[0]  # first column as keyword
