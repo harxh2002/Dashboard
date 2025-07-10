@@ -83,12 +83,15 @@ if sheet_url:
 
         latest_col = filtered_cols[-1]
         df_filtered = df.copy()
-        df_filtered["Latest Rank"] = rank_data[latest_col]
+        df_filtered["Latest Rank"] = pd.to_numeric(rank_data[latest_col], errors='coerce')
+
+        # --- Filter out NaNs or '-' for ML and Buckets ---
+        valid_ranks_df = df_filtered[df_filtered["Latest Rank"].notna()].copy()
 
         # --- SIMPLIFIED ML RANK BUCKET USING ONLY LATEST RANK ---
         df_ml = pd.DataFrame()
-        df_ml['Keyword'] = df[keyword_col]
-        df_ml['Latest'] = pd.to_numeric(rank_data[latest_col], errors='coerce')
+        df_ml['Keyword'] = valid_ranks_df[keyword_col]
+        df_ml['Latest'] = valid_ranks_df["Latest Rank"]
 
         def label_bucket(rank):
             try:
