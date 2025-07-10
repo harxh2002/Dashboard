@@ -27,20 +27,37 @@ if sheet_url:
 
         # --- DATE PARSING ---
         def parse_flexible_date(date_str):
-            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
+            try:
+                return datetime.strptime(date_str, "%m-%d-%Y")
+            except:
                 try:
-                    return datetime.strptime(date_str, fmt)
+                    return datetime.strptime(date_str, "%m/%d/%Y")
                 except:
-                    continue
-            return pd.NaT
+                    raise ValueError(f"Invalid column date format: '{date_str}'. Must be MM-DD-YYYY or MM/DD/YYYY.")
 
         parsed_dates = [parse_flexible_date(col) for col in rank_data.columns]
         valid_date_cols = [col for col, dt in zip(rank_data.columns, parsed_dates) if pd.notna(dt)]
 
-        # --- DATE FILTER ---
+        # --- USER DATE INPUT ---
         st.markdown("### Select Custom Date Range")
-        start_date = st.date_input("Start Date")
-        end_date = st.date_input("End Date")
+
+        start_date_input = st.text_input("Start Date (MM-DD-YYYY or MM/DD/YYYY)")
+        end_date_input = st.text_input("End Date (MM-DD-YYYY or MM/DD/YYYY)")
+
+        def parse_user_date(date_str):
+            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
+                try:
+                    return datetime.strptime(date_str, fmt).date()
+                except:
+                    continue
+            st.error(f"❌ Invalid input: '{date_str}'. Must be MM-DD-YYYY or MM/DD/YYYY.")
+            st.stop()
+
+        if not start_date_input or not end_date_input:
+            st.stop()
+
+        start_date = parse_user_date(start_date_input)
+        end_date = parse_user_date(end_date_input)
 
         if start_date > end_date:
             st.error("Start date must be before end date.")
@@ -66,7 +83,6 @@ if sheet_url:
         df_ml['Days Ranked'] = numeric_ranks.notna().sum(axis=1)
         df_ml['Movement'] = numeric_ranks[filtered_cols[-1]] - numeric_ranks[filtered_cols[0]]
 
-        # Simulate target using manual bucket logic on current dataset
         def label_bucket(rank):
             try:
                 r = int(rank)
