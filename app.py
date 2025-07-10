@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from datetime import datetime
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
-st.title("📈 Keyword Ranking Dashboard (ML-Based)")
+st.title("📈 Keyword Ranking Dashboard (Precise Bucket Logic)")
 
 # --- GOOGLE SHEET INPUT ---
 st.markdown("### Paste your Google Sheet link")
@@ -22,9 +20,8 @@ if sheet_url:
         st.success("✅ Google Sheet connected successfully")
         st.write("Columns:", df.columns.tolist())
 
-        keyword_col = df.columns[0]  # auto-detect keyword column
+        keyword_col = df.columns[0]  # first column as keyword
 
-        # --- DATE PARSING WITH DUPLICATE DATE HANDLING ---
         def parse_flexible_date(date_str):
             for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
                 try:
@@ -33,69 +30,44 @@ if sheet_url:
                     continue
             return pd.NaT
 
-        parsed_dates = [parse_flexible_date(col) for col in df.columns[4:]]
+        # Parse date columns and group duplicates
+        raw_date_cols = df.columns[4:]
+        parsed_dates = [parse_flexible_date(col) for col in raw_date_cols]
         rank_data_raw = df.iloc[:, 4:]
-        valid_date_cols = [(col, dt) for col, dt in zip(rank_data_raw.columns, parsed_dates) if pd.notna(dt)]
 
-        # Group columns by parsed date and take minimum rank per row for duplicates
         date_groups = {}
-        for col, dt in valid_date_cols:
-            if dt not in date_groups:
-                date_groups[dt] = []
-            date_groups[dt].append(col)
+        for col, dt in zip(rank_data_raw.columns, parsed_dates):
+            if pd.notna(dt):
+                if dt not in date_groups:
+                    date_groups[dt] = []
+                date_groups[dt].append(col)
 
-        # Create a new DataFrame where each date appears once with min value per row
         rank_data = pd.DataFrame(index=df.index)
         for dt, cols in date_groups.items():
             ranks = rank_data_raw[cols].apply(pd.to_numeric, errors='coerce')
             rank_data[dt.strftime("%m-%d-%Y")] = ranks.min(axis=1)
 
-        # --- USER DATE INPUT ---
-        st.markdown("### Select Custom Date Range")
-
-        start_date_input = st.text_input("Start Date (MM-DD-YYYY or MM/DD/YYYY)")
+        # --- USER INPUT ---
+        st.markdown("### Select End Date")
         end_date_input = st.text_input("End Date (MM-DD-YYYY or MM/DD/YYYY)")
 
-        def parse_user_date(date_str):
-            for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
-                try:
-                    return datetime.strptime(date_str, fmt).date()
-                except:
-                    continue
-            st.error(f"❌ Invalid input: '{date_str}'. Must be MM-DD-YYYY or MM/DD/YYYY.")
+        if not end_date_input:
             st.stop()
 
-        if not start_date_input or not end_date_input:
+        end_date = parse_flexible_date(end_date_input)
+        if pd.isna(end_date):
+            st.error("❌ Invalid End Date format. Use MM-DD-YYYY or MM/DD/YYYY.")
             st.stop()
 
-        start_date = parse_user_date(start_date_input)
-        end_date = parse_user_date(end_date_input)
-
-        if start_date > end_date:
-            st.error("Start date must be before end date.")
+        end_date_col = end_date.strftime("%m-%d-%Y")
+        if end_date_col not in rank_data.columns:
+            st.error(f"End date {end_date_col} not found in data.")
             st.stop()
 
-        filtered_cols = [col for col in rank_data.columns if start_date <= parse_flexible_date(col) <= end_date]
-
-        if len(filtered_cols) < 1:
-            st.warning("⚠️ Not enough date columns in selected range to process analysis.")
-            st.stop()
-
-        latest_col = filtered_cols[-1]
         df_filtered = df.copy()
-        df_filtered["Latest Rank"] = pd.to_numeric(rank_data[latest_col], errors='coerce')
+        df_filtered["Latest Rank"] = rank_data[end_date_col]
 
-        # --- ML-BASED RANK BUCKET ---
-        numeric_ranks = rank_data[filtered_cols].apply(pd.to_numeric, errors='coerce')
-        df_ml = pd.DataFrame()
-        df_ml['Keyword'] = df[keyword_col]
-        df_ml['Latest'] = numeric_ranks[latest_col]
-        df_ml['Avg'] = numeric_ranks.mean(axis=1)
-        df_ml['Std'] = numeric_ranks.std(axis=1)
-        df_ml['Days Ranked'] = numeric_ranks.notna().sum(axis=1)
-        df_ml['Movement'] = numeric_ranks[filtered_cols[-1]] - numeric_ranks[filtered_cols[0]]
-
-        def label_bucket(rank):
+        def classify_bucket(rank):
             try:
                 r = int(rank)
                 if r <= 3:
@@ -109,31 +81,14 @@ if sheet_url:
             except:
                 return None
 
-        df_ml['Target'] = df_ml['Latest'].apply(label_bucket)
-        df_train = df_ml.dropna(subset=['Target'])
-
-        if df_train.empty:
-            st.error("❌ No valid ranked keywords available in the selected end date column.")
-            st.stop()
-
-        features = ['Latest', 'Avg', 'Std', 'Days Ranked', 'Movement']
-        X_train = df_train[features]
-        y_train = LabelEncoder().fit_transform(df_train['Target'])
-
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
-
-        df_ml = df_ml.drop(columns='Target')
-        df_ml = df_ml[df_ml['Latest'].notna()]  # Keep only valid rows for prediction
-        df_ml['Predicted'] = model.predict(df_ml[features])
-        label_map = {i: l for i, l in enumerate(['Top 3', 'Top 5', 'Top 10'])}
-        df_ml['Bucket'] = df_ml['Predicted'].map(label_map)
+        df_filtered["Bucket"] = df_filtered["Latest Rank"].apply(classify_bucket)
+        df_final = df_filtered.dropna(subset=["Bucket"]).copy()
 
         # --- PIE CHART ---
-        bucket_counts = df_ml['Bucket'].value_counts().reset_index()
-        bucket_counts.columns = ['Bucket', 'Count']
-        bucket_counts['Label'] = bucket_counts['Bucket'] + ' - ' + bucket_counts['Count'].astype(str) + ' keywords'
-        pie = px.pie(bucket_counts, values='Count', names='Label', title='ML-Based Rank Bucket Distribution')
+        bucket_counts = df_final["Bucket"].value_counts().reset_index()
+        bucket_counts.columns = ["Bucket", "Count"]
+        bucket_counts["Label"] = bucket_counts["Bucket"] + " - " + bucket_counts["Count"].astype(str) + " keywords"
+        pie = px.pie(bucket_counts, values="Count", names="Label", title="Rank Bucket Distribution")
 
         # --- LAYOUT ---
         col1, col2 = st.columns([2, 2])
@@ -142,18 +97,16 @@ if sheet_url:
             st.plotly_chart(pie, use_container_width=True)
             st.markdown("### Keywords by Rank Bucket")
             st.markdown("**Top 3**")
-            st.dataframe(df_ml[df_ml["Bucket"] == "Top 3"]["Keyword"].dropna().reset_index(drop=True))
+            st.dataframe(df_final[df_final["Bucket"] == "Top 3"][keyword_col].dropna().reset_index(drop=True))
             st.markdown("**Top 5**")
-            st.dataframe(df_ml[df_ml["Bucket"] == "Top 5"]["Keyword"].dropna().reset_index(drop=True))
+            st.dataframe(df_final[df_final["Bucket"] == "Top 5"][keyword_col].dropna().reset_index(drop=True))
             st.markdown("**Top 10**")
-            st.dataframe(df_ml[df_ml["Bucket"] == "Top 10"]["Keyword"].dropna().reset_index(drop=True))
+            st.dataframe(df_final[df_final["Bucket"] == "Top 10"][keyword_col].dropna().reset_index(drop=True))
 
-        # --- TIME SERIES ---
         with col2:
             st.markdown("### Keyword Trend")
             keyword_selected = st.selectbox("Select a keyword", df[keyword_col].unique())
-
-            ts_data = df[df[keyword_col] == keyword_selected][filtered_cols].T.reset_index()
+            ts_data = df[df[keyword_col] == keyword_selected][rank_data.columns].T.reset_index()
             ts_data.columns = ["Date", "Rank"]
             ts_data["Date"] = ts_data["Date"].apply(parse_flexible_date)
             ts_data.dropna(inplace=True)
