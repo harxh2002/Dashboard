@@ -85,13 +85,15 @@ if sheet_url:
         df_filtered = df.copy()
         df_filtered["Latest Rank"] = pd.to_numeric(rank_data[latest_col], errors='coerce')
 
-        # --- Filter out NaNs or '-' for ML and Buckets ---
-        valid_ranks_df = df_filtered[df_filtered["Latest Rank"].notna()].copy()
-
-        # --- SIMPLIFIED ML RANK BUCKET USING ONLY LATEST RANK ---
+        # --- ML-BASED RANK BUCKET ---
+        numeric_ranks = rank_data[filtered_cols].apply(pd.to_numeric, errors='coerce')
         df_ml = pd.DataFrame()
-        df_ml['Keyword'] = valid_ranks_df[keyword_col]
-        df_ml['Latest'] = valid_ranks_df["Latest Rank"]
+        df_ml['Keyword'] = df[keyword_col]
+        df_ml['Latest'] = numeric_ranks[latest_col]
+        df_ml['Avg'] = numeric_ranks.mean(axis=1)
+        df_ml['Std'] = numeric_ranks.std(axis=1)
+        df_ml['Days Ranked'] = numeric_ranks.notna().sum(axis=1)
+        df_ml['Movement'] = numeric_ranks[filtered_cols[-1]] - numeric_ranks[filtered_cols[0]]
 
         def label_bucket(rank):
             try:
@@ -110,14 +112,20 @@ if sheet_url:
         df_ml['Target'] = df_ml['Latest'].apply(label_bucket)
         df_train = df_ml.dropna(subset=['Target'])
 
-        X_train = df_train[['Latest']]
+        if df_train.empty:
+            st.error("❌ No valid ranked keywords available in the selected end date column.")
+            st.stop()
+
+        features = ['Latest', 'Avg', 'Std', 'Days Ranked', 'Movement']
+        X_train = df_train[features]
         y_train = LabelEncoder().fit_transform(df_train['Target'])
 
         model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X_train, y_train)
 
         df_ml = df_ml.drop(columns='Target')
-        df_ml['Predicted'] = model.predict(df_ml[['Latest']])
+        df_ml = df_ml[df_ml['Latest'].notna()]  # Keep only valid rows for prediction
+        df_ml['Predicted'] = model.predict(df_ml[features])
         label_map = {i: l for i, l in enumerate(['Top 3', 'Top 5', 'Top 10'])}
         df_ml['Bucket'] = df_ml['Predicted'].map(label_map)
 
