@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
-import gspread
-from google.auth.transport.requests import Request
-from google.oauth2.service_account import Credentials
+import requests
 
 # --- CONFIG ---
 st.set_page_config(page_title="Keyword Rank Dashboard", layout="wide")
@@ -17,32 +15,29 @@ end_date_input = st.sidebar.date_input("Select End Date")
 
 if sheet_url:
     try:
-        # --- Extract Sheet ID ---
         sheet_id = sheet_url.split("/")[5]
 
-        # --- Setup Google Sheets API Access ---
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
-        client = gspread.authorize(creds)
-        sheet = client.open_by_key(sheet_id)
-        worksheet_list = sheet.worksheets()
-        tab_names = [ws.title for ws in worksheet_list]
+        # --- PLATFORM DETECTION ---
+        available_tabs = []
+        for tab in ["iOS", "Android"]:
+            try:
+                check_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={tab}"
+                response = requests.head(check_url)
+                if response.status_code == 200:
+                    available_tabs.append(tab)
+            except:
+                pass
 
-        platforms = []
-        if "iOS" in tab_names:
-            platforms.append("iOS")
-        if "Android" in tab_names:
-            platforms.append("Android")
-
-        if not platforms:
-            st.error("No valid 'iOS' or 'Android' tabs found in the sheet.")
+        if not available_tabs:
+            st.error("❌ No valid tabs named 'iOS' or 'Android' found in the sheet.")
             st.stop()
 
-        platform_selected = st.sidebar.radio("Select Platform", platforms)
-        ws = sheet.worksheet(platform_selected)
-        df = pd.DataFrame(ws.get_all_records())
+        platform = st.sidebar.radio("Select Platform Tab", available_tabs)
 
-        st.success(f"✅ Connected to {platform_selected} tab successfully")
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={platform}"
+        df = pd.read_csv(csv_url)
+
+        st.success(f"✅ Connected to '{platform}' tab successfully")
         st.write("Columns:", df.columns.tolist())
 
         keyword_col = df.columns[0]  # first column as keyword
