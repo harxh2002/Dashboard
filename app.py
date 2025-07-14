@@ -31,7 +31,7 @@ if not st.session_state.authenticated:
         if username in client_logins and client_logins[username]["password"] == password:
             st.session_state.authenticated = True
             st.session_state.username = username
-           st.rerun()
+            st.rerun()
         else:
             st.error("Invalid credentials")
     st.stop()
