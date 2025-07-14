@@ -13,10 +13,10 @@ client_logins = {
         "sheet_url": "https://docs.google.com/spreadsheets/d/1mW4oVoGARzM4nCLCd-UOWghKZ3UNZO7LxLDbMwS2NHs/edit?usp=sharing",
         "name": "Simpl"
     },
-    "Nutri123": {
-        "password": "Nutri123",
-        "sheet_url": "https://docs.google.com/spreadsheets/d/1o3LpBXcI9teHWjTrtxUu2RlENFKp9EVMyUbnJWuGeiM/edit?usp=sharing",
-        "name": "Nutristar"
+    "Crib123": {
+        "password": "Crib123",
+        "sheet_url": "https://docs.google.com/spreadsheets/d/13ybx_RySYBsvRT7YRlBiuSHy6ps2MypORvCskKoyHIk/edit?gid=0#gid=0",
+        "name": "Crib"
     }
 }
 
