@@ -5,11 +5,44 @@ from datetime import datetime
 
 # --- CONFIG ---
 st.set_page_config(page_title="Multi-Platform ASO Keyword Rank Dashboard", layout="wide")
-st.title("📱 Multi-Platform ASO Keyword Rank Dashboard")
+
+# --- LOGIN SYSTEM ---
+client_logins = {
+    "Simpl123": {
+        "password": "Simpl123",
+        "sheet_url": "https://docs.google.com/spreadsheets/d/1mW4oVoGARzM4nCLCd-UOWghKZ3UNZO7LxLDbMwS2NHs/edit?usp=sharing",
+        "name": "Simpl"
+    },
+    "Nutri123": {
+        "password": "Nutri123",
+        "sheet_url": "https://docs.google.com/spreadsheets/d/1o3LpBXcI9teHWjTrtxUu2RlENFKp9EVMyUbnJWuGeiM/edit?usp=sharing",
+        "name": "Nutristar"
+    }
+}
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔐 Client Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if username in client_logins and client_logins[username]["password"] == password:
+            st.session_state.authenticated = True
+            st.session_state.username = username
+            st.experimental_rerun()
+        else:
+            st.error("Invalid credentials")
+    st.stop()
+
+# --- DASHBOARD ---
+client_info = client_logins[st.session_state.username]
+sheet_url = client_info["sheet_url"]
+st.title(f"📱 ASO Rank Dashboard - {client_info['name']}")
 
 # --- SIDEBAR INPUTS ---
-st.sidebar.header("🔗 Data Configuration")
-sheet_url = st.sidebar.text_input("Google Sheet URL")
+st.sidebar.header("📊 Dashboard Options")
 platform = st.sidebar.radio("Select Platform", options=["Android", "iOS"])
 end_date_input_str = st.sidebar.text_input("Select End Date (MM-DD-YYYY or MM/DD/YYYY)")
 
